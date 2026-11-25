@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MehaiIulian/agent-skills/config/config.schema.json",
+  "title": "AI-DLC Configuration Schema",
+  "type": "object",
+  "required": ["version", "governance", "orchestration", "agents"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "governance": {
+      "type": "object",
+      "required": ["mode", "default_depth", "modes", "adaptive_depth"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["strict", "balanced", "autonomous"] },
+        "default_depth": { "type": "string", "enum": ["auto", "fast-track", "standard", "deep"] },
+        "modes": {
+          "type": "object",
+          "required": ["strict", "balanced", "autonomous"],
+          "additionalProperties": false,
+          "properties": {
+            "strict": { "$ref": "#/$defs/modeSpec" },
+            "balanced": { "$ref": "#/$defs/modeSpec" },
+            "autonomous": { "$ref": "#/$defs/modeSpec" }
+          }
+        },
+        "adaptive_depth": {
+          "type": "object",
+          "required": ["fast-track", "standard", "deep"],
+          "additionalProperties": false,
+          "properties": {
+            "fast-track": { "$ref": "#/$defs/depthSpec" },
+            "standard": { "$ref": "#/$defs/depthSpec" },
+            "deep": { "$ref": "#/$defs/depthSpec" }
+          }
+        }
+      }
+    },
+    "orchestration": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "allow_dynamic_subagents",
+        "max_nesting_depth",
+        "max_parallel_subagents",
+        "default_dynamic_subagent_model",
+        "require_verifier_for_code_changes",
+        "require_security_audit_for_sensitive_changes",
+        "max_review_rounds",
+        "workspace_isolation_for_parallel_authors",
+        "context_rotation_threshold_pct",
+        "max_steps_before_handoff",
+        "context_window_token_budget",
+        "fresh_subagent_per_unit",
+        "handoff_max_tokens"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "protocol": { "type": "string", "enum": ["hybrid", "subagents", "swarm", "workflow"] },
+        "allow_dynamic_subagents": { "type": "boolean" },
+        "max_nesting_depth": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "max_parallel_subagents": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "default_dynamic_subagent_model": { "type": "string", "enum": ["inherit", "flash_lite", "flash", "pro"] },
+        "require_verifier_for_code_changes": { "type": "boolean" },
+        "require_security_audit_for_sensitive_changes": { "type": "boolean" },
+        "max_review_rounds": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "workspace_isolation_for_parallel_authors": { "type": "string", "enum": ["share", "branch"] },
+        "context_rotation_threshold_pct": { "type": "integer", "minimum": 20, "maximum": 90 },
+        "max_steps_before_handoff": { "type": "integer", "minimum": 5, "maximum": 100 },
+        "context_window_token_budget": { "type": "integer", "minimum": 16000, "maximum": 2000000 },
+        "fresh_subagent_per_unit": { "type": "boolean" },
+        "handoff_max_tokens": { "type": "integer", "minimum": 300, "maximum": 8000 }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/agentSpec" }
+    }
+  },
+  "$defs": {
+    "modeSpec": {
+      "type": "object",
+      "required": ["description", "allow_fast_track_skip_inception", "gates"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "allow_fast_track_skip_inception": { "type": "boolean" },
+        "gates": {
+          "type": "object",
+          "required": ["inception_to_construction", "construction_to_operation", "operation_to_completed"],
+          "additionalProperties": false,
+          "properties": {
+            "inception_to_construction": { "type": "string", "enum": ["human", "verifier", "auto"] },
+            "construction_to_operation": { "type": "string", "enum": ["human", "verifier", "auto"] },
+            "operation_to_completed": { "type": "string", "enum": ["human", "verifier", "auto"] }
+          }
+        }
+      }
+    },
+    "depthSpec": {
+      "type": "object",
+      "required": ["criteria", "phases"],
+      "additionalProperties": false,
+      "properties": {
+        "criteria": { "type": "string" },
+        "phases": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      }
+    },
+    "agentSpec": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "phase",
+        "description",
+        "model",
+        "mainAgent",
+        "subagent",
+        "commandExecutionPolicy",
+        "inheritMcp",
+        "inheritCustomizations",
+        "tools",
+        "skills",
+        "can_spawn_subagents",
+        "max_subagents",
+        "custom_instructions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "phase": { "type": "string", "enum": ["all", "inception", "construction", "operation"] },
+        "description": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "enum": ["inherit", "flash_lite", "flash", "pro"] },
+        "mainAgent": { "type": "boolean" },
+        "subagent": { "type": "boolean" },
+        "commandExecutionPolicy": { "type": "string", "enum": ["off", "auto", "eager", "sandbox"] },
+        "inheritMcp": { "type": "boolean" },
+        "inheritCustomizations": { "type": "boolean" },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "read_file",
+              "edit_file",
+              "write_file",
+              "run_command",
+              "manage_task",
+              "search_web",
+              "ask_question",
+              "define_subagent",
+              "invoke_subagent",
+              "send_message",
+              "manage_subagents",
+              "run_workflow",
+              "swarm",
+              "schedule"
+            ]
+          }
+        },
+        "skills": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" } },
+        "can_spawn_subagents": { "type": "boolean" },
+        "max_subagents": { "type": "integer", "minimum": 0, "maximum": 12 },
+        "custom_instructions": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="AI-DLC Agent Skills">
+  <defs>
+    <linearGradient id="bgGrad" x1="24" y1="24" x2="232" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#312E81"/>
+      <stop offset="55%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#0F766E"/>
+    </linearGradient>
+    <linearGradient id="ringGrad" x1="56" y1="56" x2="200" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#A5B4FC"/>
+      <stop offset="50%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#2DD4BF"/>
+    </linearGradient>
+  </defs>
+  <!-- ~10% transparent outer margin baked in (26px inset on 256x256) -->
+  <rect x="26" y="26" width="204" height="204" rx="44" fill="url(#bgGrad)" stroke="#E2E8F0" stroke-opacity="0.25" stroke-width="3"/>
+  <!-- Outer orbital lifecycle ring -->
+  <circle cx="128" cy="128" r="62" fill="none" stroke="url(#ringGrad)" stroke-width="9" stroke-linecap="round" stroke-dasharray="106 24"/>
+  <!-- Connecting triangle paths between Inception, Construction, Operation nodes -->
+  <path d="M128 66 L181.7 159 L74.3 159 Z" fill="none" stroke="#F8FAFC" stroke-opacity="0.45" stroke-width="4" stroke-linejoin="round"/>
+  <!-- Central orchestrator hub -->
+  <circle cx="128" cy="132" r="20" fill="#0F172A" stroke="#F8FAFC" stroke-width="5"/>
+  <circle cx="128" cy="132" r="7" fill="#2DD4BF"/>
+  <!-- Three AI-DLC phase nodes -->
+  <circle cx="128" cy="66" r="14" fill="#6366F1" stroke="#F8FAFC" stroke-width="4"/>
+  <circle cx="181.7" cy="159" r="14" fill="#0EA5E9" stroke="#F8FAFC" stroke-width="4"/>
+  <circle cx="74.3" cy="159" r="14" fill="#14B8A6" stroke="#F8FAFC" stroke-width="4"/>
+</svg>

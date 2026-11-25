@@ -1,0 +1,268 @@
+{
+  "$schema": "./config.schema.json",
+  "version": "1.0.0",
+  "governance": {
+    "mode": "balanced",
+    "default_depth": "auto",
+    "modes": {
+      "strict": {
+        "description": "Mandatory human approval gates after Inception, after Construction verification, and before Operation release; fast-track cannot skip Inception.",
+        "allow_fast_track_skip_inception": false,
+        "gates": {
+          "inception_to_construction": "human",
+          "construction_to_operation": "human",
+          "operation_to_completed": "human"
+        }
+      },
+      "balanced": {
+        "description": "Human gate after Inception and before final Operation release; fast-track may skip full Inception for trivial low-risk changes (<= 2 files, no schema/API/security impact); verifier gate mandatory in Construction.",
+        "allow_fast_track_skip_inception": true,
+        "gates": {
+          "inception_to_construction": "human",
+          "construction_to_operation": "verifier",
+          "operation_to_completed": "human"
+        }
+      },
+      "autonomous": {
+        "description": "Independent verifier (and security for sensitive changes) sign-off instead of pausing for human approval at intermediate boundaries; pauses only on blockers or final summary.",
+        "allow_fast_track_skip_inception": true,
+        "gates": {
+          "inception_to_construction": "auto",
+          "construction_to_operation": "verifier",
+          "operation_to_completed": "auto"
+        }
+      }
+    },
+    "adaptive_depth": {
+      "fast-track": {
+        "criteria": "Small bug fix, docs update, or isolated refactor touching 1-2 files with no API, schema, or security impact.",
+        "phases": ["triage", "construction", "operation"]
+      },
+      "standard": {
+        "criteria": "Typical feature, enhancement, or multi-file fix requiring clear requirements, design notes, unit decomposition, TDD, and peer verification.",
+        "phases": ["triage", "inception", "construction", "operation"]
+      },
+      "deep": {
+        "criteria": "Greenfield service, breaking API/schema migration, security-sensitive domain, or cross-cutting architecture requiring DDD modeling, ADRs, and dedicated security review.",
+        "phases": ["triage", "inception", "construction", "operation"]
+      }
+    }
+  },
+  "orchestration": {
+    "protocol": "hybrid",
+    "allow_dynamic_subagents": true,
+    "max_nesting_depth": 3,
+    "max_parallel_subagents": 4,
+    "default_dynamic_subagent_model": "inherit",
+    "require_verifier_for_code_changes": true,
+    "require_security_audit_for_sensitive_changes": true,
+    "max_review_rounds": 3,
+    "workspace_isolation_for_parallel_authors": "share",
+    "context_rotation_threshold_pct": 50,
+    "max_steps_before_handoff": 25,
+    "context_window_token_budget": 200000,
+    "fresh_subagent_per_unit": true,
+    "handoff_max_tokens": 1500
+  },
+  "agents": {
+    "orchestrator": {
+      "enabled": true,
+      "phase": "all",
+      "description": "AI-DLC lead orchestrator. Triages adaptive depth, manages .aidlc/ state and human gates, coordinates specialists, spawns dynamic subagents, and launches swarm or run_workflow pipelines.",
+      "model": "inherit",
+      "mainAgent": true,
+      "subagent": true,
+      "commandExecutionPolicy": "sandbox",
+      "inheritMcp": true,
+      "inheritCustomizations": true,
+      "tools": [
+        "read_file",
+        "edit_file",
+        "write_file",
+        "run_command",
+        "manage_task",
+        "search_web",
+        "ask_question",
+        "define_subagent",
+        "invoke_subagent",
+        "send_message",
+        "manage_subagents",
+        "run_workflow",
+        "swarm"
+      ],
+      "skills": [
+        "workflow",
+        "subagent-orchestration",
+        "agent-tuning",
+        "task-decomposition"
+      ],
+      "can_spawn_subagents": true,
+      "max_subagents": 4,
+      "custom_instructions": []
+    },
+    "researcher": {
+      "enabled": true,
+      "phase": "inception",
+      "description": "Read-only codebase and documentation mapper for AI-DLC Inception. Returns structured context briefs with verified file paths, symbol names, and constraints.",
+      "model": "flash",
+      "mainAgent": false,
+      "subagent": true,
+      "commandExecutionPolicy": "sandbox",
+      "inheritMcp": true,
+      "inheritCustomizations": true,
+      "tools": [
+        "read_file",
+        "search_web",
+        "send_message"
+      ],
+      "skills": [
+        "requirements-discovery"
+      ],
+      "can_spawn_subagents": false,
+      "max_subagents": 0,
+      "custom_instructions": []
+    },
+    "architect": {
+      "enabled": true,
+      "phase": "inception",
+      "description": "AI-DLC Inception architect. Discovers and validates application business rules, produces requirements specs, Domain-Driven Design models, C4 architecture diagrams (L1-L4), ADRs, and non-overlapping work units before Construction.",
+      "model": "pro",
+      "mainAgent": true,
+      "subagent": true,
+      "commandExecutionPolicy": "sandbox",
+      "inheritMcp": true,
+      "inheritCustomizations": true,
+      "tools": [
+        "read_file",
+        "edit_file",
+        "write_file",
+        "search_web",
+        "ask_question",
+        "define_subagent",
+        "invoke_subagent",
+        "send_message",
+        "manage_subagents"
+      ],
+      "skills": [
+        "requirements-discovery",
+        "architecture-ddd",
+        "task-decomposition",
+        "subagent-orchestration"
+      ],
+      "can_spawn_subagents": true,
+      "max_subagents": 2,
+      "custom_instructions": []
+    },
+    "developer": {
+      "enabled": true,
+      "phase": "construction",
+      "description": "AI-DLC Construction engineer. Implements assigned units using TDD, resolves peer review and security findings, and spawns bounded helper subagents when needed.",
+      "model": "inherit",
+      "mainAgent": true,
+      "subagent": true,
+      "commandExecutionPolicy": "sandbox",
+      "inheritMcp": true,
+      "inheritCustomizations": true,
+      "tools": [
+        "read_file",
+        "edit_file",
+        "write_file",
+        "run_command",
+        "manage_task",
+        "search_web",
+        "define_subagent",
+        "invoke_subagent",
+        "send_message",
+        "manage_subagents"
+      ],
+      "skills": [
+        "tdd-implementation",
+        "systematic-debugging",
+        "refactoring",
+        "git-pr-workflow",
+        "subagent-orchestration"
+      ],
+      "can_spawn_subagents": true,
+      "max_subagents": 2,
+      "custom_instructions": []
+    },
+    "verifier": {
+      "enabled": true,
+      "phase": "construction",
+      "description": "Independent AI-DLC quality verifier and code reviewer. Runs tests and adversarial reviews without modifying production code, returning structured APPROVED or CHANGES_REQUESTED verdicts.",
+      "model": "inherit",
+      "mainAgent": false,
+      "subagent": true,
+      "commandExecutionPolicy": "sandbox",
+      "inheritMcp": true,
+      "inheritCustomizations": true,
+      "tools": [
+        "read_file",
+        "run_command",
+        "manage_task",
+        "send_message"
+      ],
+      "skills": [
+        "code-review",
+        "systematic-debugging"
+      ],
+      "can_spawn_subagents": false,
+      "max_subagents": 0,
+      "custom_instructions": []
+    },
+    "security": {
+      "enabled": true,
+      "phase": "construction",
+      "description": "AI-DLC threat modeling and security audit specialist. Reviews architecture designs, code diffs, and configs for vulnerabilities and sends prioritized findings to authors.",
+      "model": "pro",
+      "mainAgent": false,
+      "subagent": true,
+      "commandExecutionPolicy": "sandbox",
+      "inheritMcp": true,
+      "inheritCustomizations": true,
+      "tools": [
+        "read_file",
+        "run_command",
+        "manage_task",
+        "search_web",
+        "send_message"
+      ],
+      "skills": [
+        "security-audit",
+        "code-review"
+      ],
+      "can_spawn_subagents": false,
+      "max_subagents": 0,
+      "custom_instructions": []
+    },
+    "operator": {
+      "enabled": true,
+      "phase": "operation",
+      "description": "AI-DLC Operation specialist. Owns release readiness checklists, verified documentation, rollback plans, PR summaries, and incident postmortems.",
+      "model": "inherit",
+      "mainAgent": true,
+      "subagent": true,
+      "commandExecutionPolicy": "sandbox",
+      "inheritMcp": true,
+      "inheritCustomizations": true,
+      "tools": [
+        "read_file",
+        "edit_file",
+        "write_file",
+        "run_command",
+        "manage_task",
+        "search_web",
+        "send_message"
+      ],
+      "skills": [
+        "release-operations",
+        "technical-documentation",
+        "git-pr-workflow",
+        "incident-postmortem"
+      ],
+      "can_spawn_subagents": false,
+      "max_subagents": 0,
+      "custom_instructions": []
+    }
+  }
+}

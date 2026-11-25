@@ -1,0 +1,30 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "agent-skills",
+  "displayName": "AI-DLC Agent Skills",
+  "version": "1.0.0",
+  "description": "AI-Driven Development Life Cycle (AI-DLC) skills, tunable specialist agents, dynamic subagent orchestration, and cross-tool installers.",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Start an AI-DLC workflow to design, implement, and verify a new feature",
+    "Show and tune my AI-DLC agents, models, skills, and verification gate mode",
+    "Run a multi-agent code review and security audit on my current changes"
+  ],
+  "author": {
+    "name": "MehaiIulian",
+    "url": "https://github.com/MehaiIulian"
+  },
+  "homepage": "https://github.com/MehaiIulian/agent-skills",
+  "repository": "https://github.com/MehaiIulian/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "aidlc",
+    "sdlc",
+    "agent-skills",
+    "subagents",
+    "tdd",
+    "architecture",
+    "code-review",
+    "security"
+  ]
+}
