@@ -33,6 +33,7 @@ CLAUDE_TOOL_MAP: dict[str, list[str]] = {
     "run_command": ["Bash"],
     "manage_task": ["Bash"],
     "search_web": ["WebSearch"],
+    "ask_question": ["AskUserQuestion"],
     "define_subagent": ["Agent"],
     "invoke_subagent": ["Agent"],
 }

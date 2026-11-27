@@ -25,8 +25,8 @@ Decompose `.aidlc/inception/design.md` into Units of Work (`U1`, `U2`, ...):
 ## Step 2: Enforce Disjoint File Ownership
 
 Verify that **no two active concurrent units touch the same file**:
-- Assign exact file paths (and test files) to each unit.
-- Register every unit in `.aidlc/state.json` via `scripts/state.py`, which automatically rejects file collisions:
+- Assign exact file paths (and test files) to each unit in `.aidlc/inception/units.md` (`skills/workflow/assets/units-template.md`).
+- When running in an agent with `run_command` (such as `orchestrator`), register every unit in `.aidlc/state.json` via `scripts/state.py`, which automatically rejects file collisions (when running inside design-only `architect` without `run_command`, hand `.aidlc/inception/units.md` in a `READY` Handoff Envelope to `orchestrator` to execute `register-unit`):
   ```bash
   python3 scripts/state.py register-unit \
     --project <project> \
@@ -42,11 +42,11 @@ Verify that **no two active concurrent units touch the same file**:
 For each unit specify:
 1. **Owner & Model Tier**: e.g., `developer` (or dynamic subagent name).
 2. **Required Skills**: e.g., `tdd-implementation`, `refactoring`, `technical-documentation`.
-3. **Dependencies & Parallel Wave**: Group independent units into Wave 1 (parallel `workspace: "share"`), dependent units into Wave 2.
-4. **Acceptance Criteria IDs**: Map back to `FR-*` / `NFR-*` in `.aidlc/inception/requirements.md`.
+3. **Dependencies & Parallel Wave**: Group independent units into Wave 1 (parallel `workspace: "share"`), dependent units (`depends_on`) into Wave 2+.
+4. **Business Rule & Acceptance Criteria IDs**: Map back to `BR-*`, `FR-*`, and `NFR-*` in `.aidlc/inception/requirements.md`.
 
 ## Verification
 
-- Every `FR-*` in `requirements.md` maps to at least one registered unit.
-- `state.py register-unit` passes with zero file overlap errors across concurrent units.
-- Present `.aidlc/inception/units.md` (and `requirements.md` / `design.md`) at the Inception gate before advancing to Construction.
+- Every `BR-*` and `FR-*` in `requirements.md` maps to at least one unit in `.aidlc/inception/units.md`.
+- Concurrent units in the same wave have strictly disjoint file sets (`state.py register-unit` passes with zero file overlap errors when registered by `orchestrator`).
+- Present `.aidlc/inception/units.md` (alongside `requirements.md` and `design.md`) at the Inception gate before advancing to Construction.

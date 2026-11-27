@@ -19,11 +19,12 @@ workspace_root = WORKSPACES[0] if WORKSPACES else "."
 
 UNIT_ITEM_SCHEMA = {
     "type": "object",
-    "required": ["id", "title", "files", "acceptance_criteria", "skills"],
+    "required": ["id", "title", "files", "depends_on", "acceptance_criteria", "skills"],
     "properties": {
         "id": {"type": "string"},
         "title": {"type": "string"},
         "files": {"type": "array", "items": {"type": "string"}},
+        "depends_on": {"type": "array", "items": {"type": "string"}},
         "acceptance_criteria": {"type": "string"},
         "skills": {"type": "array", "items": {"type": "string"}},
     },
@@ -31,9 +32,10 @@ UNIT_ITEM_SCHEMA = {
 
 ARCHITECTURE_SCHEMA = {
     "type": "object",
-    "required": ["summary", "design_doc", "units"],
+    "required": ["summary", "business_rules", "design_doc", "units"],
     "properties": {
         "summary": {"type": "string"},
+        "business_rules": {"type": "array", "items": {"type": "string"}},
         "design_doc": {"type": "string"},
         "units": {"type": "array", "items": UNIT_ITEM_SCHEMA, "minItems": 1},
     },
@@ -81,9 +83,12 @@ plan = await agent(
     prompt=(
         f"Intent: {intent}\nDepth: {depth}\n\n"
         f"Repository research brief:\n{research_brief}\n\n"
-        "Read skills/architecture-ddd/SKILL.md and skills/task-decomposition/SKILL.md. "
-        "Design the solution and split it into disjoint-file Units of Work. "
-        "Write .aidlc/inception/requirements.md and .aidlc/inception/design.md if depth != 'fast-track'. "
+        "Read skills/requirements-discovery/SKILL.md, skills/architecture-ddd/SKILL.md, "
+        "and skills/task-decomposition/SKILL.md. "
+        "Inventory existing and new Business Rules (BR-*), design the solution with depth-scaled C4 diagrams, "
+        "and split work into disjoint-file Units of Work with explicit depends_on wave ordering. "
+        "Write ONLY inside .aidlc/inception/ (requirements.md, design.md, units.md when depth != 'fast-track'; "
+        "record conservative assumptions instead of calling ask_question in headless workflow mode). "
         "Return structured JSON matching the schema."
     ),
     schema=ARCHITECTURE_SCHEMA,
@@ -94,21 +99,56 @@ plan = await agent(
 log(f"Architecture plan ready with {len(plan['units'])} unit(s): {plan['summary']}")
 
 phase("Construction — Implementation")
-use_share = parallel_units and len(plan["units"]) > 1
-author_workspace = "share" if use_share else "inherit"
+business_rules_block = "\n".join(f"- {br}" for br in plan.get("business_rules", [])) or "- (see design_doc)"
 
 
-def build_unit_agent(unit):
+def _norm_unit_path(raw_path):
+    return raw_path.strip().lstrip("./")
+
+
+def _wave_has_file_overlap(wave_units):
+    seen = set()
+    for unit in wave_units:
+        normed = {_norm_unit_path(f) for f in unit.get("files", []) if _norm_unit_path(f)}
+        if seen & normed:
+            return True
+        seen |= normed
+    return False
+
+
+def _compute_unit_waves(units):
+    remaining = list(units)
+    known_ids = {u["id"] for u in remaining}
+    completed = set()
+    waves = []
+    while remaining:
+        ready = [
+            u
+            for u in remaining
+            if all((dep not in known_ids) or (dep in completed) for dep in u.get("depends_on", []))
+        ]
+        if not ready:
+            # Break dependency cycle conservatively by running remaining units one by one
+            ready = [remaining[0]]
+        waves.append(ready)
+        ready_ids = {u["id"] for u in ready}
+        completed |= ready_ids
+        remaining = [u for u in remaining if u["id"] not in ready_ids]
+    return waves
+
+
+def build_unit_agent(unit, run_in_share):
     skills_list = ", ".join(f"skills/{s}/SKILL.md" for s in unit["skills"])
     files_list = ", ".join(unit["files"])
     isolation_note = (
         "You are running in an isolated shared workspace; commit your unit changes cleanly in your branch and report changed files and test output."
-        if use_share
+        if run_in_share
         else "Edit only your owned files in place and verify tests pass."
     )
     return agent(
         prompt=(
             f"Implement AI-DLC Unit {unit['id']}: {unit['title']}\n\n"
+            f"Business Rules (BR-*):\n{business_rules_block}\n\n"
             f"Design Context:\n{plan['design_doc']}\n\n"
             f"Owned Files (do NOT edit outside these): {files_list}\n"
             f"Acceptance Criteria: {unit['acceptance_criteria']}\n"
@@ -118,14 +158,21 @@ def build_unit_agent(unit):
         schema=DEV_RESULT_SCHEMA,
         role=f"Implement {unit['id']}: {unit['title']}",
         type_name="developer",
-        workspace=author_workspace,
+        workspace="share" if run_in_share else "inherit",
     )
 
 
-if use_share:
-    dev_results = await parallel(plan["units"], build_unit_agent)
-else:
-    dev_results = await pipeline(plan["units"], build_unit_agent)
+dev_results = []
+for wave_idx, wave_units in enumerate(_compute_unit_waves(plan["units"]), 1):
+    overlap = _wave_has_file_overlap(wave_units)
+    if overlap:
+        log(f"Wave {wave_idx}: overlapping file ownership detected; falling back to sequential execution.")
+    wave_share = parallel_units and len(wave_units) > 1 and not overlap
+    if wave_share:
+        wave_res = await parallel(wave_units, lambda u: build_unit_agent(u, True))
+    else:
+        wave_res = await pipeline(wave_units, lambda u: build_unit_agent(u, False))
+    dev_results.extend(wave_res)
 
 for res in dev_results:
     log(f"Unit {res['unit_id']} implemented: {res['summary']} | Tests: {res['test_results']}")
@@ -138,7 +185,8 @@ async def run_reviews(context_note):
         agent(
             prompt=(
                 "Read skills/code-review/SKILL.md. Review all implementation changes against "
-                f"acceptance criteria and design:\n{plan['design_doc']}\n\n"
+                f"Business Rules (BR-*), acceptance criteria, and design:\n{business_rules_block}\n\n"
+                f"{plan['design_doc']}\n\n"
                 f"Implementation reports:\n{dev_results}\n\n{context_note}\n"
                 "Run the actual test suite and report exact findings and approved boolean."
             ),
@@ -153,7 +201,8 @@ async def run_reviews(context_note):
             agent(
                 prompt=(
                     "Read skills/security-audit/SKILL.md. Audit the design and implementation "
-                    f"for security risks and policy gaps:\n{plan['design_doc']}\n\n"
+                    f"for security risks and Business Rule policy gaps:\n{business_rules_block}\n\n"
+                    f"{plan['design_doc']}\n\n"
                     f"Implementation reports:\n{dev_results}\n\n{context_note}"
                 ),
                 schema=REVIEW_RESULT_SCHEMA,

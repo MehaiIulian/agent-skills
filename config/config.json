@@ -212,7 +212,7 @@
     },
     "security": {
       "enabled": true,
-      "phase": "construction",
+      "phase": "all",
       "description": "AI-DLC threat modeling and security audit specialist. Reviews architecture designs, code diffs, and configs for vulnerabilities and sends prioritized findings to authors.",
       "model": "pro",
       "mainAgent": false,

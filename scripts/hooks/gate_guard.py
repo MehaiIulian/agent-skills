@@ -88,6 +88,19 @@ def _is_inside_aidlc(target_path: str, project_root: Path | None) -> bool:
     return False
 
 
+def _inception_requires_approval(mode: str) -> bool:
+    cfg_file = PLUGIN_ROOT / "config" / "config.json"
+    if cfg_file.is_file():
+        try:
+            modes = json.loads(cfg_file.read_text(encoding="utf-8")).get("governance", {}).get("modes", {})
+            gate = modes.get(mode, {}).get("gates", {}).get("inception_to_construction")
+            if isinstance(gate, str):
+                return gate != "auto"
+        except (OSError, json.JSONDecodeError):
+            pass
+    return mode in ("strict", "balanced")
+
+
 def _check_context_rotation(payload: dict[str, Any]) -> dict[str, Any]:
     policy = _load_context_policy()
     threshold_pct = int(policy["context_rotation_threshold_pct"])
@@ -120,9 +133,10 @@ def _check_context_rotation(payload: dict[str, Any]) -> dict[str, Any]:
 
     msg = (
         f"[CONTEXT ROTATION GUARD >= {threshold_pct}%] Triggered ({'; '.join(reasons)}). "
-        f"To prevent Context Rot, pause deep work now: write a compact Context-Pointer Handoff "
+        f"To prevent Context Rot, pause deep work now: record a compact Context-Pointer Handoff "
         f"(<= {handoff_cap} tokens: file paths, commits, .aidlc/state.json, remaining steps — NO raw logs) "
-        f"via scripts/state.py record-handoff and spawn a fresh replacement subagent via invoke_subagent "
+        f"via scripts/state.py record-handoff (or write .aidlc/handoffs/ / send a Handoff Envelope to orchestrator "
+        f"if you do not have run_command) and spawn a fresh replacement subagent via invoke_subagent "
         f"(or recommend /compact if you are the primary chat agent)."
     )
     return {"injectSteps": [{"systemMessage": {"systemMessage": msg}}]}
@@ -160,14 +174,14 @@ def handle_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return {"injectSteps": [{"userMessage": summary}]}
 
     if event == "PreToolUse":
-        if mode == "strict" and phase == "inception":
+        if phase == "inception" and _inception_requires_approval(mode):
             target = _extract_target_path(payload)
             if target and not _is_inside_aidlc(target, project_root):
                 return {
                     "decision": "ask",
                     "reason": (
-                        "AI-DLC strict mode: workflow is still in Inception. "
-                        "Confirm before modifying code files prior to Inception gate approval."
+                        f"AI-DLC {mode} mode: workflow is still in Inception. "
+                        "Confirm before modifying files outside .aidlc/ prior to Inception gate approval."
                     ),
                 }
         return {}

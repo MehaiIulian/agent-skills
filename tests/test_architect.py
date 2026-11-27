@@ -262,7 +262,7 @@ class TestArchitectSkillsAndAssets(ArchitectTestBase):
             self.assertIn(token, req_tpl)
         for token in ("Bounded Context", "BR-1", "C4 Architecture Diagrams", "ADR-001"):
             self.assertIn(token, des_tpl)
-        for token in ("Unit ID", "Owned Files (Disjoint)", "Dependencies", "Required Skills"):
+        for token in ("Unit ID", "Wave", "Owned Files (Disjoint per Wave)", "Dependencies", "Required Skills", "BR-1"):
             self.assertIn(token, uni_tpl)
 
     def test_orchestration_references_support_architect_handoffs(self) -> None:
@@ -287,17 +287,24 @@ class TestArchitectBody(ArchitectTestBase):
             self.assertIn(f"`{prefix}", self.body, prefix)
         self.assertIn("Given/When/Then", self.body)
 
-    def test_inception_artifacts_documented(self) -> None:
+    def test_inception_artifacts_and_design_only_guardrail_documented(self) -> None:
         self.assertIn(".aidlc/inception/requirements.md", self.body)
         self.assertIn(".aidlc/inception/design.md", self.body)
+        self.assertIn(".aidlc/inception/units.md", self.body)
+        self.assertIn("ONLY inside `.aidlc/inception/`", self.body)
+        self.assertIn("never attempt shell commands", self.body)
 
-    def test_c4_levels_documented(self) -> None:
+    def test_c4_levels_are_depth_calibrated(self) -> None:
         for level in ("L1 System Context", "L2 Container", "L3 Component", "L4"):
             self.assertIn(level, self.body)
+        self.assertIn("`standard`", self.body)
+        self.assertIn("`deep`", self.body)
 
-    def test_unit_decomposition_requires_disjoint_ownership(self) -> None:
+    def test_unit_decomposition_requires_disjoint_ownership_and_orchestrator_handoff(self) -> None:
         self.assertIn("disjoint file ownership", self.body)
+        self.assertIn("depends_on", self.body)
         self.assertIn("register-unit", self.body)
+        self.assertIn("`orchestrator` registers each unit", self.body)
 
     def test_state_register_unit_subcommand_exists(self) -> None:
         proc = run_script("scripts/state.py", "register-unit", "--help")
@@ -305,13 +312,15 @@ class TestArchitectBody(ArchitectTestBase):
         for flag in ("--files", "--skills", "--allow-overlap"):
             self.assertIn(flag, proc.stdout)
 
-    def test_collaborators_exist_and_are_enabled(self) -> None:
+    def test_collaborators_exist_and_security_supports_inception_delegation(self) -> None:
         for peer in COLLABORATORS:
             with self.subTest(peer=peer):
                 self.assertIn(f"`{peer}`", self.body)
                 self.assertIn(peer, self.cfg["agents"])
                 self.assertTrue(self.cfg["agents"][peer]["enabled"])
                 self.assertTrue((REPO_ROOT / "agents" / f"{peer}.md").is_file())
+        self.assertIn(self.cfg["agents"]["security"]["phase"], ("all", "inception"))
+        self.assertIn('TypeName: "security"', self.body)
 
 
 class TestArchitectTuningAndCLI(ArchitectTestBase):
@@ -567,57 +576,90 @@ class TestArchitectInceptionLifecycleAndHooks(unittest.TestCase):
             self.assertEqual(state["phase"], "construction")
             self.assertEqual(state["gates"]["inception_to_construction"]["approved_by"], "human")
 
-    def test_gate_guard_allows_aidlc_artifacts_and_guards_strict_src_writes(self) -> None:
+    def test_gate_guard_allows_aidlc_artifacts_and_guards_gated_src_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            proj = Path(tmp) / "strict-app"
-            proj.mkdir()
-            run_script(
-                "scripts/state.py",
-                "init",
-                "--project",
-                str(proj),
-                "--title",
-                "Strict Run",
-                "--mode",
-                "strict",
-                "--depth",
-                "deep",
-            )
+            for mode in ("strict", "balanced"):
+                proj = Path(tmp) / f"{mode}-app"
+                proj.mkdir()
+                run_script(
+                    "scripts/state.py",
+                    "init",
+                    "--project",
+                    str(proj),
+                    "--title",
+                    f"{mode} Run",
+                    "--mode",
+                    mode,
+                    "--depth",
+                    "deep",
+                )
 
-            for artifact in ("requirements.md", "design.md", "adr-001.md"):
-                p_allow = run_script(
+                for artifact in ("requirements.md", "design.md", "units.md", "adr-001.md"):
+                    p_allow = run_script(
+                        "scripts/hooks/gate_guard.py",
+                        stdin_text=json.dumps(
+                            {
+                                "hookEventName": "PreToolUse",
+                                "cwd": str(proj),
+                                "toolCall": {
+                                    "id": "w1",
+                                    "name": "write_file",
+                                    "args": {"Path": str(proj / ".aidlc" / "inception" / artifact)},
+                                },
+                            }
+                        ),
+                    )
+                    self.assertEqual(p_allow.returncode, 0)
+                    self.assertEqual(json.loads(p_allow.stdout), {})
+
+                p_src = run_script(
                     "scripts/hooks/gate_guard.py",
                     stdin_text=json.dumps(
                         {
                             "hookEventName": "PreToolUse",
                             "cwd": str(proj),
                             "toolCall": {
-                                "id": "w1",
+                                "id": "w2",
                                 "name": "write_file",
-                                "args": {"Path": str(proj / ".aidlc" / "inception" / artifact)},
+                                "args": {"Path": str(proj / "src" / "domain.py")},
                             },
                         }
                     ),
                 )
-                self.assertEqual(p_allow.returncode, 0)
-                self.assertEqual(json.loads(p_allow.stdout), {})
+                self.assertEqual(p_src.returncode, 0)
+                self.assertEqual(json.loads(p_src.stdout).get("decision"), "ask", mode)
 
-            p_src = run_script(
+            # In autonomous mode (inception_to_construction == 'auto'), PreToolUse does not prompt
+            auto_proj = Path(tmp) / "autonomous-app"
+            auto_proj.mkdir()
+            run_script(
+                "scripts/state.py",
+                "init",
+                "--project",
+                str(auto_proj),
+                "--title",
+                "Auto Run",
+                "--mode",
+                "autonomous",
+                "--depth",
+                "standard",
+            )
+            p_auto_src = run_script(
                 "scripts/hooks/gate_guard.py",
                 stdin_text=json.dumps(
                     {
                         "hookEventName": "PreToolUse",
-                        "cwd": str(proj),
+                        "cwd": str(auto_proj),
                         "toolCall": {
-                            "id": "w2",
+                            "id": "w3",
                             "name": "write_file",
-                            "args": {"Path": str(proj / "src" / "domain.py")},
+                            "args": {"Path": str(auto_proj / "src" / "domain.py")},
                         },
                     }
                 ),
             )
-            self.assertEqual(p_src.returncode, 0)
-            self.assertEqual(json.loads(p_src.stdout).get("decision"), "ask")
+            self.assertEqual(p_auto_src.returncode, 0)
+            self.assertEqual(json.loads(p_auto_src.stdout), {})
 
     def test_gate_guard_preinvocation_context_rotation_thresholds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -637,7 +679,7 @@ class TestArchitectInceptionLifecycleAndHooks(unittest.TestCase):
             self.assertEqual(p_quiet.returncode, 0)
             self.assertEqual(json.loads(p_quiet.stdout), {})
 
-            # Step threshold (>= 25) triggers rotation message
+            # Step threshold (>= 25) triggers rotation message with non-CLI fallback for architect
             p_steps = run_script(
                 "scripts/hooks/gate_guard.py",
                 stdin_text=json.dumps(
@@ -652,6 +694,7 @@ class TestArchitectInceptionLifecycleAndHooks(unittest.TestCase):
             out_steps = json.loads(p_steps.stdout)
             sys_msg = out_steps["injectSteps"][0]["systemMessage"]["systemMessage"]
             self.assertIn("CONTEXT ROTATION GUARD", sys_msg)
+            self.assertIn("do not have run_command", sys_msg)
 
             # Token budget threshold (>= 50% of 200k tokens ~= 400k bytes) triggers rotation message
             large_tx = Path(tmp) / "large.jsonl"
@@ -694,7 +737,7 @@ class TestArchitectCrossPlatformInstallAndValidation(unittest.TestCase):
             self.assertEqual(fm["name"], AGENT_NAME)
             self.assertEqual(
                 fm["tools"],
-                ["Agent", "Edit", "Glob", "Grep", "Read", "WebSearch", "Write"],
+                ["Agent", "AskUserQuestion", "Edit", "Glob", "Grep", "Read", "WebSearch", "Write"],
             )
             self.assertNotIn("Bash", fm["tools"])
             self.assertIn("## Core Responsibilities", body)
@@ -847,21 +890,69 @@ class TestArchitectPipelineWiring(unittest.TestCase):
 
     def test_architecture_schema_contract(self) -> None:
         arch = self.schemas["ARCHITECTURE_SCHEMA"]
-        self.assertEqual(set(arch["required"]), {"summary", "design_doc", "units"})
+        self.assertEqual(set(arch["required"]), {"summary", "business_rules", "design_doc", "units"})
+        self.assertEqual(arch["properties"]["business_rules"]["type"], "array")
         units = arch["properties"]["units"]
         self.assertEqual(units["type"], "array")
         self.assertGreaterEqual(units["minItems"], 1)
         item = units["items"]
-        self.assertTrue({"id", "title", "files", "acceptance_criteria", "skills"} <= set(item["required"]))
+        self.assertTrue(
+            {"id", "title", "files", "depends_on", "acceptance_criteria", "skills"} <= set(item["required"])
+        )
         self.assertEqual(item["properties"]["files"]["type"], "array")
+        self.assertEqual(item["properties"]["depends_on"]["type"], "array")
 
-    def test_prompt_only_references_skills_bound_to_architect(self) -> None:
+    def test_prompt_references_all_inception_skills_and_artifacts(self) -> None:
         prompt_src = ast.unparse(self._kw(self.architect_calls[0], "prompt"))
         mentioned = set(re.findall(r"skills/([a-z0-9-]+)/SKILL\.md", prompt_src))
-        self.assertTrue(mentioned)
+        self.assertEqual(
+            mentioned,
+            {"requirements-discovery", "architecture-ddd", "task-decomposition"},
+        )
         bound = set(load_json(CONFIG_FILE)["agents"][AGENT_NAME]["skills"])
         self.assertFalse(mentioned - bound, f"prompt uses unbound skills: {mentioned - bound}")
-        self.assertIn("disjoint", prompt_src)
+        for token in ("disjoint", "depends_on", "requirements.md", "design.md", "units.md"):
+            self.assertIn(token, prompt_src)
+
+    def test_pipeline_wave_scheduler_and_file_overlap_helpers(self) -> None:
+        helper_names = {"_norm_unit_path", "_wave_has_file_overlap", "_compute_unit_waves"}
+        helper_nodes = [
+            node
+            for node in self.tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in helper_names
+        ]
+        self.assertEqual({n.name for n in helper_nodes}, helper_names)
+        mod = ast.Module(body=helper_nodes, type_ignores=[])
+        ns: dict[str, Any] = {}
+        exec(compile(mod, str(PIPELINE_FILE), "exec"), ns)  # noqa: S102 - pure helper functions
+
+        units = [
+            {"id": "U0", "files": ["src/contracts.py"], "depends_on": []},
+            {"id": "U1", "files": ["src/service_a.py"], "depends_on": ["U0"]},
+            {"id": "U2", "files": ["src/service_b.py"], "depends_on": ["U0"]},
+            {"id": "U3", "files": ["src/api.py"], "depends_on": ["U1", "U2"]},
+        ]
+        waves = ns["_compute_unit_waves"](units)
+        self.assertEqual([[u["id"] for u in w] for w in waves], [["U0"], ["U1", "U2"], ["U3"]])
+        self.assertFalse(ns["_wave_has_file_overlap"](waves[1]))
+
+        # Normalized "./src/x.py" vs "src/x.py" overlap is detected
+        self.assertTrue(
+            ns["_wave_has_file_overlap"](
+                [
+                    {"id": "A", "files": ["./src/shared.py"]},
+                    {"id": "B", "files": ["src/shared.py"]},
+                ]
+            )
+        )
+
+        # Dependency cycles degrade gracefully without infinite loops
+        cyclic = [
+            {"id": "C1", "files": ["a.py"], "depends_on": ["C2"]},
+            {"id": "C2", "files": ["b.py"], "depends_on": ["C1"]},
+        ]
+        cyclic_waves = ns["_compute_unit_waves"](cyclic)
+        self.assertEqual([[u["id"] for u in w] for w in cyclic_waves], [["C1"], ["C2"]])
 
     def test_architect_runs_in_inception_and_feeds_construction_agents(self) -> None:
         call_line = self.architect_calls[0].lineno
@@ -877,9 +968,11 @@ class TestArchitectPipelineWiring(unittest.TestCase):
         current = max((p for p in phases if p[0] < call_line), default=(0, ""))[1]
         self.assertTrue(current.startswith("Inception"), current)
 
-        # Downstream developer/verifier/security prompts consume plan['design_doc'] and plan['units']
-        self.assertIn("plan['design_doc']", self.source.replace('"', "'"))
-        self.assertIn("plan['units']", self.source.replace('"', "'"))
+        # Downstream developer/verifier/security prompts consume business_rules, design_doc, and units
+        normalized_src = self.source.replace('"', "'")
+        self.assertIn("business_rules_block", normalized_src)
+        self.assertIn("plan['design_doc']", normalized_src)
+        self.assertIn("plan['units']", normalized_src)
 
 
 if __name__ == "__main__":

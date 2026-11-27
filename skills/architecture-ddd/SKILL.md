@@ -47,5 +47,5 @@ For every significant technical choice (storage engine, protocol, library, migra
 
 ## Step 5: Security & Architecture Gate
 
-- For `deep` runs or designs touching auth, network edges, PII, secrets, or infra: send `.aidlc/inception/design.md` to `security` (`send_message`) for pre-implementation threat review.
-- **Next Peer**: Proceed to `task-decomposition` to split the approved design into disjoint Work Units.
+- For `deep` runs or designs touching auth, network edges, PII, secrets, or infra: launch `security` via `invoke_subagent` (`TypeName: "security"`) to review `.aidlc/inception/design.md`—or send `.aidlc/inception/design.md` via `send_message` using the active `security` subagent's `conversationId` if already spawned by `orchestrator`.
+- **Next Peer**: Proceed to `task-decomposition` to split the approved design into disjoint Work Units in `.aidlc/inception/units.md`.

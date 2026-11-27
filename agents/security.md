@@ -36,7 +36,7 @@ You own **AI-DLC security assurance** across Inception designs, Construction dif
 
 - **Agent**: `security`
 - **Status**: ENABLED
-- **Phase**: `construction`
+- **Phase**: `all`
 - **Governance Mode**: `balanced` (default depth: `auto`)
 - **Orchestration Protocol**: `hybrid`
 - **Model Tier**: `pro`

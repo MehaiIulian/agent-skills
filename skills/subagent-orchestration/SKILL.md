@@ -57,7 +57,7 @@ When no existing specialist fits (e.g., schema migration, benchmark profiling, A
 Agents communicate cleanly without flooding parent context by following [handoff-protocol.md](references/handoff-protocol.md):
 - Pass **conversationIds** explicitly when two peer subagents should iterate directly (e.g., `developer` <-> `verifier`).
 - Every handoff uses the standard **Handoff Envelope** (`status`, `unit`, `skills_used`, `artifacts`, `findings`/`summary`, `next_action`).
-- Record significant phase/unit transitions in `.aidlc/handoffs/` via:
+- Record significant phase/unit transitions in `.aidlc/handoffs/` via `scripts/state.py record-handoff` when running in an agent with `run_command` (design-only or read-only agents without `run_command`, such as `architect` or `researcher`, write a `.aidlc/handoffs/` Markdown note or return the Handoff Envelope to `orchestrator` to record):
   `python3 scripts/state.py record-handoff --project <dir> --from <src> --to <dst> --phase <phase> --status <STATUS> --summary "..."`
 
 ## 5. Mode D — Parallel Swarm Board (`swarm`) & Pipelines (`run_workflow`)
@@ -71,6 +71,6 @@ To prevent *Context Rot* (attention dilution and lost middle constraints above ~
 1. **Fresh Subagent Per Unit & Review (`fresh_subagent_per_unit: true`)**: Spawn a brand-new subagent (`invoke_subagent`) for each Unit of Work (`U1`, `U2`, ...) and each independent review pass rather than recycling long-running subagents.
 2. **Rotate at ~50% Context (or `>= max_steps_before_handoff` Tool Steps)**: When approaching `orchestration.context_rotation_threshold_pct` (default `50%`) or `orchestration.max_steps_before_handoff` (default `25` tool steps), or when `gate_guard.py` injects `[CONTEXT ROTATION GUARD]`:
    - Stop starting new exploration or edits in the current context.
-   - Write a compact **Context-Pointer Handoff** (`<= 1,500` tokens) via `scripts/state.py record-handoff` containing ONLY: completed items, exact file paths/commits, current test status, open blockers, required `SKILL.md` paths, and the exact next step (**never** copy-paste raw terminal logs or full file dumps).
+   - Write a compact **Context-Pointer Handoff** (`<= 1,500` tokens) via `scripts/state.py record-handoff` (or via `write_file` in `.aidlc/handoffs/` / `send_message` to `orchestrator` when running in an agent without `run_command`, such as `architect` or `researcher`) containing ONLY: completed items, exact file paths/commits, current test status, open blockers, required `SKILL.md` paths, and the exact next step (**never** copy-paste raw terminal logs or full file dumps).
    - Spawn a fresh replacement subagent (`invoke_subagent`) initialized strictly with that handoff pointer so it starts at 0% context.
 3. **Primary Chat Thread**: Keep the root conversation lean by delegating heavy exploration/implementation to fresh subagents, and recommend `/compact` to the user when the primary chat thread grows large.
