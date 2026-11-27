@@ -309,7 +309,7 @@ class TestArchitectBody(ArchitectTestBase):
     def test_state_register_unit_subcommand_exists(self) -> None:
         proc = run_script("scripts/state.py", "register-unit", "--help")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        for flag in ("--files", "--skills", "--allow-overlap"):
+        for flag in ("--files", "--skills", "--depends-on", "--wave", "--allow-overlap"):
             self.assertIn(flag, proc.stdout)
 
     def test_collaborators_exist_and_security_supports_inception_delegation(self) -> None:
@@ -505,7 +505,7 @@ class TestArchitectInceptionLifecycleAndHooks(unittest.TestCase):
             )
             self.assertEqual(p_u2.returncode, 0, p_u2.stderr)
 
-            # Overlapping file ownership is rejected
+            # Overlapping file ownership in the same wave is rejected
             p_collide = run_script(
                 "scripts/state.py",
                 "register-unit",
@@ -522,6 +522,70 @@ class TestArchitectInceptionLifecycleAndHooks(unittest.TestCase):
             )
             self.assertNotEqual(p_collide.returncode, 0)
             self.assertIn("collision", p_collide.stderr.lower())
+
+            # Serialized downstream unit (--depends-on U1) may touch U1's file without --allow-overlap
+            p_u3_wave2 = run_script(
+                "scripts/state.py",
+                "register-unit",
+                "--project",
+                str(proj),
+                "--id",
+                "U3",
+                "--title",
+                "Follow-up audit hook on domain.py",
+                "--owner",
+                "developer",
+                "--files",
+                "src/orders/domain.py,.github/workflows/ci.yml",
+                "--depends-on",
+                "U1",
+                "--wave",
+                "2",
+            )
+            self.assertEqual(p_u3_wave2.returncode, 0, p_u3_wave2.stderr)
+
+            # Another Wave 2 unit touching the same file as U3 still collides
+            p_u4_collide = run_script(
+                "scripts/state.py",
+                "register-unit",
+                "--project",
+                str(proj),
+                "--id",
+                "U4",
+                "--title",
+                "Concurrent Wave 2 conflict",
+                "--owner",
+                "developer",
+                "--files",
+                "src/orders/domain.py",
+                "--depends-on",
+                "U1",
+                "--wave",
+                "2",
+            )
+            self.assertNotEqual(p_u4_collide.returncode, 0)
+            self.assertIn("collision", p_u4_collide.stderr.lower())
+
+            # Dotfile paths stay distinct from non-dotfile paths (no over-stripping of leading '.')
+            p_u4_dotfile_ok = run_script(
+                "scripts/state.py",
+                "register-unit",
+                "--project",
+                str(proj),
+                "--id",
+                "U4",
+                "--title",
+                "Docs mentioning github workflow path",
+                "--owner",
+                "developer",
+                "--files",
+                "github/workflows/ci.yml",
+                "--depends-on",
+                "U1",
+                "--wave",
+                "2",
+            )
+            self.assertEqual(p_u4_dotfile_ok.returncode, 0, p_u4_dotfile_ok.stderr)
 
             # Record Inception handoff from architect -> orchestrator
             p_ho = run_script(
@@ -628,6 +692,24 @@ class TestArchitectInceptionLifecycleAndHooks(unittest.TestCase):
                 )
                 self.assertEqual(p_src.returncode, 0)
                 self.assertEqual(json.loads(p_src.stdout).get("decision"), "ask", mode)
+
+                # Path traversal escaping .aidlc/ via '..' must NOT bypass the guard
+                p_escape = run_script(
+                    "scripts/hooks/gate_guard.py",
+                    stdin_text=json.dumps(
+                        {
+                            "hookEventName": "PreToolUse",
+                            "cwd": str(proj),
+                            "toolCall": {
+                                "id": "w2b",
+                                "name": "write_file",
+                                "args": {"Path": str(proj / ".aidlc" / ".." / "src" / "domain.py")},
+                            },
+                        }
+                    ),
+                )
+                self.assertEqual(p_escape.returncode, 0)
+                self.assertEqual(json.loads(p_escape.stdout).get("decision"), "ask", mode)
 
             # In autonomous mode (inception_to_construction == 'auto'), PreToolUse does not prompt
             auto_proj = Path(tmp) / "autonomous-app"
@@ -776,6 +858,24 @@ class TestArchitectCrossPlatformInstallAndValidation(unittest.TestCase):
             self.assertTrue(cur_arch.is_file())
             cur_fm, _ = split_agent_doc(cur_arch)
             self.assertEqual(set(cur_fm.keys()), {"name", "description"})
+
+    def test_codex_export_includes_architect_skills_and_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_dst = Path(tmp) / "codex"
+            install.install_codex(
+                repo_root=REPO_ROOT,
+                scope="user",
+                project=None,
+                target_dir=codex_dst,
+                method="copy",
+                dry_run=False,
+                uninstall=False,
+                force=True,
+            )
+            for skill in REQUIRED_SKILLS:
+                self.assertTrue((codex_dst / "skills" / skill / "SKILL.md").is_file(), skill)
+            agents_md = (codex_dst / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertIn("architect", agents_md)
 
     def test_disabled_architect_is_skipped_by_enabled_agent_exporters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -946,6 +1046,24 @@ class TestArchitectPipelineWiring(unittest.TestCase):
             )
         )
 
+        # Dotfile paths keep their leading dot; "./.env" normalizes to ".env"
+        self.assertEqual(ns["_norm_unit_path"](".github/workflows/ci.yml"), ".github/workflows/ci.yml")
+        self.assertEqual(ns["_norm_unit_path"]("./.env"), ".env")
+        self.assertFalse(
+            ns["_wave_has_file_overlap"](
+                [
+                    {"id": "A", "files": [".github/workflows/ci.yml"]},
+                    {"id": "B", "files": ["github/workflows/ci.yml"]},
+                ]
+            )
+        )
+
+        # Unknown/external depends_on IDs do not stall wave scheduling
+        ext_waves = ns["_compute_unit_waves"](
+            [{"id": "U1", "files": ["a.py"], "depends_on": ["EXTERNAL_PRECONDITION"]}]
+        )
+        self.assertEqual([[u["id"] for u in w] for w in ext_waves], [["U1"]])
+
         # Dependency cycles degrade gracefully without infinite loops
         cyclic = [
             {"id": "C1", "files": ["a.py"], "depends_on": ["C2"]},
@@ -953,6 +1071,9 @@ class TestArchitectPipelineWiring(unittest.TestCase):
         ]
         cyclic_waves = ns["_compute_unit_waves"](cyclic)
         self.assertEqual([[u["id"] for u in w] for w in cyclic_waves], [["C1"], ["C2"]])
+
+        # Parallel share-workspace waves integrate branches back before subsequent waves/verification
+        self.assertIn("Integrate Wave", self.source)
 
     def test_architect_runs_in_inception_and_feeds_construction_agents(self) -> None:
         call_line = self.architect_calls[0].lineno

@@ -76,16 +76,25 @@ def _is_inside_aidlc(target_path: str, project_root: Path | None) -> bool:
     if not target_path:
         return False
     p = Path(target_path)
-    if ".aidlc" in p.parts:
-        return True
     if project_root is not None:
         try:
-            resolved_target = p if p.is_absolute() else (project_root / p)
-            resolved_target.resolve().relative_to((project_root / ".aidlc").resolve())
+            resolved_target = (p if p.is_absolute() else (project_root / p)).resolve()
+            resolved_target.relative_to((project_root / ".aidlc").resolve())
             return True
         except ValueError:
             return False
-    return False
+    parts: list[str] = []
+    for part in p.parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            else:
+                return False
+        else:
+            parts.append(part)
+    return ".aidlc" in parts
 
 
 def _inception_requires_approval(mode: str) -> bool:

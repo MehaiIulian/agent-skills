@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import posixpath
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -203,7 +204,51 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def _norm_file(path_str: str) -> str:
-    return path_str.strip().lstrip("./")
+    cleaned = path_str.strip().replace("\\", "/")
+    if not cleaned:
+        return ""
+    normed = posixpath.normpath(cleaned)
+    if normed == ".":
+        return ""
+    while normed.startswith("./"):
+        normed = normed[2:]
+    return normed.lstrip("/")
+
+
+def _is_transitive_dep(
+    units: dict[str, dict[str, Any]], start_deps: list[str], target_id: str
+) -> bool:
+    visited: set[str] = set()
+    stack = list(start_deps)
+    while stack:
+        cur = stack.pop()
+        if cur == target_id:
+            return True
+        if cur in visited:
+            continue
+        visited.add(cur)
+        other = units.get(cur)
+        if other:
+            stack.extend(other.get("depends_on", []))
+    return False
+
+
+def _units_are_serialized(
+    units: dict[str, dict[str, Any]],
+    unit_id: str,
+    unit_deps: list[str],
+    unit_wave: int | None,
+    other_id: str,
+    other: dict[str, Any],
+) -> bool:
+    if _is_transitive_dep(units, unit_deps, other_id):
+        return True
+    if _is_transitive_dep(units, other.get("depends_on", []), unit_id):
+        return True
+    other_wave = other.get("wave")
+    if unit_wave is not None and other_wave is not None and unit_wave != other_wave:
+        return True
+    return False
 
 
 def cmd_register_unit(args: argparse.Namespace) -> int:
@@ -211,32 +256,44 @@ def cmd_register_unit(args: argparse.Namespace) -> int:
     state = load_state(project)
     files = [_norm_file(f) for f in args.files.split(",") if _norm_file(f)]
     skills = [s.strip() for s in args.skills.split(",") if s.strip()] if args.skills else []
+    depends_on = (
+        [d.strip() for d in args.depends_on.split(",") if d.strip()]
+        if getattr(args, "depends_on", "")
+        else []
+    )
+    wave = getattr(args, "wave", None)
 
     if not args.allow_overlap and files:
         new_set = set(files)
         for other_id, other in state["units"].items():
             if other_id == args.id or other["status"] == "approved":
                 continue
+            if _units_are_serialized(state["units"], args.id, depends_on, wave, other_id, other):
+                continue
             overlap = sorted(new_set & set(other.get("files", [])))
             if overlap:
                 print(
                     f"Error: file ownership collision between unit '{args.id}' and "
                     f"active unit '{other_id}' on: {', '.join(overlap)}. "
-                    f"Assign disjoint files or pass --allow-overlap explicitly.",
+                    f"Assign disjoint files, declare --depends-on/--wave ordering, or pass --allow-overlap explicitly.",
                     file=sys.stderr,
                 )
                 return 1
 
-    state["units"][args.id] = {
+    unit_record: dict[str, Any] = {
         "id": args.id,
         "title": args.title,
         "owner": args.owner,
         "files": files,
         "skills": skills,
+        "depends_on": depends_on,
         "status": "pending",
         "notes": args.notes or "",
         "updated_at": utc_now(),
     }
+    if wave is not None:
+        unit_record["wave"] = wave
+    state["units"][args.id] = unit_record
     save_state(project, state)
     print(f"Registered unit '{args.id}' owned by '{args.owner}' ({len(files)} file(s)).")
     return 0
@@ -428,6 +485,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_reg.add_argument("--owner", required=True)
     p_reg.add_argument("--files", default="")
     p_reg.add_argument("--skills", default="")
+    p_reg.add_argument("--depends-on", dest="depends_on", default="")
+    p_reg.add_argument("--wave", type=int, default=None)
     p_reg.add_argument("--notes", default="")
     p_reg.add_argument("--allow-overlap", action="store_true")
 

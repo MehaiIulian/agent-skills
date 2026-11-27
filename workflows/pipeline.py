@@ -103,7 +103,19 @@ business_rules_block = "\n".join(f"- {br}" for br in plan.get("business_rules", 
 
 
 def _norm_unit_path(raw_path):
-    return raw_path.strip().lstrip("./")
+    cleaned = raw_path.strip().replace("\\", "/")
+    while cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    cleaned = cleaned.lstrip("/")
+    parts = []
+    for part in cleaned.split("/"):
+        if not part or part == ".":
+            continue
+        if part == ".." and parts and parts[-1] != "..":
+            parts.pop()
+        else:
+            parts.append(part)
+    return "/".join(parts)
 
 
 def _wave_has_file_overlap(wave_units):
@@ -170,6 +182,20 @@ for wave_idx, wave_units in enumerate(_compute_unit_waves(plan["units"]), 1):
     wave_share = parallel_units and len(wave_units) > 1 and not overlap
     if wave_share:
         wave_res = await parallel(wave_units, lambda u: build_unit_agent(u, True))
+        merge_summary = await agent(
+            prompt=(
+                f"Integrate Wave {wave_idx} parallel share-workspace unit branches into the main workspace "
+                f"at {workspace_root} before proceeding to the next wave or verification:\n"
+                f"{wave_res}\n\n"
+                "Merge each unit's committed branch cleanly, verify git status is clean with no conflict markers, "
+                "and return a brief integration summary."
+            ),
+            schema={"type": "string"},
+            role=f"Integrate Wave {wave_idx} Branches",
+            type_name="orchestrator",
+            workspace="inherit",
+        )
+        log(f"Wave {wave_idx} merged into main workspace: {merge_summary}")
     else:
         wave_res = await pipeline(wave_units, lambda u: build_unit_agent(u, False))
     dev_results.extend(wave_res)
